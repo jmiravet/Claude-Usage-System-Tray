@@ -2,46 +2,46 @@
 
 > Windows tray icon showing your Claude usage limits as a filling ring, with a details panel. Based on [apexlocal-jz/claude-usage-tray](https://github.com/apexlocal-jz/claude-usage-tray).
 
-Icono en la bandeja de Windows que muestra el uso de tus límites de Claude: el asterisco de Claude con un anillo que se rellena en sentido horario según el uso de la sesión de 5 horas (verde < 70 %, ámbar < 90 %, rojo a partir de 90 %; gris si los datos tienen más de 20 min).
+The icon is the Claude asterisk inside a ring that fills clockwise with your 5-hour session usage: green under 70%, amber under 90%, red at 90% and above, and gray when the data is more than 20 minutes old.
 
-Al hacer clic se abre un panel junto al icono con la sesión, el límite semanal, cuándo se reinicia cada uno y el desglose semanal por producto. Sigue el tema claro/oscuro de Windows y se coloca bien con barras de tareas verticales.
+Click it to open a panel next to the icon with your session and weekly limits, when each one resets, and this week's usage by product. It follows the Windows light/dark theme and positions itself correctly with vertical taskbars.
 
-Basado en [apexlocal-jz/claude-usage-tray](https://github.com/apexlocal-jz/claude-usage-tray) de Joe Zeng. Esta versión rehace el icono y el panel, añade un vigilante que la reabre si se cae y está en español.
+Based on [apexlocal-jz/claude-usage-tray](https://github.com/apexlocal-jz/claude-usage-tray) by Joe Zeng. This version redesigns the icon and the details panel and adds a watchdog that restarts the app if it crashes.
 
-> Herramienta no oficial, sin relación con Anthropic. Usa un endpoint no documentado (`/api/oauth/usage`) que puede cambiar.
+> Unofficial tool, not affiliated with Anthropic. It uses an undocumented endpoint (`/api/oauth/usage`) that may change.
 
-## Requisitos
+## Requirements
 
-- Windows 10/11 con Windows PowerShell 5.1 (incluido en Windows)
-- Claude Code instalado y con la sesión iniciada (`~/.claude/.credentials.json`)
+- Windows 10/11 with Windows PowerShell 5.1 (built in)
+- Claude Code installed and signed in (`~/.claude/.credentials.json`)
 
-## Instalación
+## Install
 
-1. Descarga el repositorio (Code → Download ZIP) y descomprímelo en una carpeta fija, por ejemplo `C:\Users\<tú>\.claude\usage-tray`.
-2. En PowerShell:
+1. Download the repository (Code → Download ZIP) and unzip it to a permanent folder, for example `C:\Users\<you>\.claude\usage-tray`.
+2. In PowerShell:
 
    ```powershell
-   powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\<tú>\.claude\usage-tray\Install.ps1"
+   powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Users\<you>\.claude\usage-tray\Install.ps1"
    ```
 
-Esto crea un acceso directo en la carpeta de Inicio de Windows y abre la app. Para quitarla, ejecuta `Uninstall.ps1` igual.
+This adds a shortcut to your Windows Startup folder and launches the app. To remove it, run `Uninstall.ps1` the same way.
 
-## Privacidad y red
+## Privacy and network
 
-- Lee el token OAuth que mantiene Claude Code; **no** lo renueva ni lo escribe. Si caduca, el aviso pide abrir Claude Code.
-- Solo consulta `GET https://api.anthropic.com/api/oauth/usage` cada ~5 min. Sin telemetría.
-- Guarda `tray.log` y `last-usage.json` (últimos porcentajes) en su propia carpeta.
+- Reads the OAuth token that Claude Code maintains; it **never** refreshes or writes it. If the token expires, the app asks you to open Claude Code.
+- Only calls `GET https://api.anthropic.com/api/oauth/usage`, about every 5 minutes. No telemetry.
+- Stores `tray.log` and `last-usage.json` (your latest percentages) in its own folder.
 
-## Archivos
+## Files
 
-| Archivo | Qué hace |
+| File | Purpose |
 |---|---|
-| `ClaudeUsageTray.ps1` | La app (icono, panel, consultas) |
-| `Watchdog.ps1` | La reabre si termina por un fallo; se detiene si eliges *Salir* |
-| `Start.vbs` | Lanza el vigilante sin ventana visible |
-| `Install.ps1` / `Uninstall.ps1` | Inicio automático e instalación/desinstalación |
-| `tests/Preview.ps1` | Genera `panel.png` e `icons.png` para revisar el diseño sin tocar la bandeja |
+| `ClaudeUsageTray.ps1` | The app (icon, panel, API calls) |
+| `Watchdog.ps1` | Restarts the app if it exits on an error; stops when you pick *Quit* |
+| `Start.vbs` | Launches the watchdog with no visible window |
+| `Install.ps1` / `Uninstall.ps1` | Startup shortcut, install and uninstall |
+| `tests/Preview.ps1` | Renders `panel.png` and `icons.png` to review the design without touching the tray |
 
-## Licencia
+## License
 
-MIT. Ver [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

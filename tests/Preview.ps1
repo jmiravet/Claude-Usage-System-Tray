@@ -1,5 +1,5 @@
-﻿# Dibuja el panel y el icono en PNG sin tocar la bandeja, para revisarlos a ojo.
-# Uso: powershell -File tests\Preview.ps1 [carpeta-de-salida]
+﻿# Renders the panel and icons to PNG without touching the tray, for visual review.
+# Usage: powershell -File tests\Preview.ps1 [output-folder]
 param([string]$OutDir = $PWD)
 
 $env:CLAUDE_TRAY_LIB = '1'
@@ -7,7 +7,7 @@ $env:CLAUDE_TRAY_LIB = '1'
 
 Read-Cache
 if (-not $script:data) { Invoke-Fetch }
-if (-not (Get-Limit 'session')) { throw "Sin datos de uso: $script:status" }
+if (-not (Get-Limit 'session')) { throw "No usage data: $script:status" }
 
 # Panel
 $script:pal = Get-Palette
@@ -21,7 +21,7 @@ $g.Clear($script:pal.Bg)
 [void](Invoke-PanelLayout $g $true $W)
 $bmp.Save((Join-Path $OutDir 'panel.png'))
 
-# Iconos: tamano real (24 px) sobre barra oscura y clara, y ampliados x4
+# Icons: actual size (24 px) on dark and light taskbars, plus 4x zoom
 $cases = @(@(0, 'ok'), @(12, 'ok'), @(35, 'ok'), @(62, 'ok'), @(78, 'ok'), @(95, 'ok'), @(100, 'ok'), @(40, 'stale'), @(0, 'error'))
 $cell = 112
 $strip = New-Object System.Drawing.Bitmap ($cell * $cases.Count), 200
@@ -40,4 +40,4 @@ for ($i = 0; $i -lt $cases.Count; $i++) {
     $gs.DrawString(('{0}% {1}' -f $cases[$i][0], $cases[$i][1]), $font, [System.Drawing.Brushes]::Gray, $x0 + 8, 182)
 }
 $strip.Save((Join-Path $OutDir 'icons.png'))
-Write-Host "Guardado panel.png e icons.png en $OutDir"
+Write-Host "Saved panel.png and icons.png to $OutDir"

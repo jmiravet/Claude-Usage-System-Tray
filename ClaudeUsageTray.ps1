@@ -1,7 +1,7 @@
 ﻿#requires -version 5.1
-# Claude Usage System Tray: uso de los limites de Claude en la bandeja de Windows.
-# Lee el token de Claude Code (~/.claude/.credentials.json) y solo consulta api.anthropic.com.
-# Codigos de salida (los usa Watchdog.ps1): 0 = Salir, 3 = ya habia otra instancia, otro = fallo.
+# Claude Usage System Tray: Claude usage limits in the Windows system tray.
+# Reads the Claude Code token (~/.claude/.credentials.json) and only talks to api.anthropic.com.
+# Exit codes (used by Watchdog.ps1): 0 = Quit, 3 = another instance is running, other = crash.
 
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -34,11 +34,11 @@ public static class TrayNative {
 
 [void][TrayNative]::SetProcessDPIAware()
 [System.Windows.Forms.Application]::EnableVisualStyles()
-# Cualquier excepcion en un evento de la interfaz se registra en vez de cerrar la app.
+# Log exceptions raised in UI event handlers instead of letting them close the app.
 [System.Windows.Forms.Application]::SetUnhandledExceptionMode([System.Windows.Forms.UnhandledExceptionMode]::CatchException)
 [System.Windows.Forms.Application]::add_ThreadException({
     param($s, $e)
-    Write-Log ('Excepcion de interfaz (ignorada): ' + $e.Exception.Message)
+    Write-Log ('UI exception (ignored): ' + $e.Exception.Message)
 })
 
 $UsageUrl     = 'https://api.anthropic.com/api/oauth/usage'
@@ -46,8 +46,8 @@ $PollSec      = 300
 $JitterSec    = 45
 $TimeoutMs    = 8000
 $MaxBodyBytes = 1MB
-$StaleMin     = 20       # datos mas viejos que esto: icono gris
-$Es           = [Globalization.CultureInfo]::GetCultureInfo('es-ES')
+$StaleMin     = 20       # data older than this turns the icon gray
+$En           = [Globalization.CultureInfo]::GetCultureInfo('en-US')
 
 $script:nextFetch   = Get-Date
 $script:backoff429  = [DateTime]::MinValue
@@ -57,15 +57,15 @@ $script:hit         = @()
 $script:rand        = New-Object Random
 
 function Invoke-Safe([string]$name, [scriptblock]$sb) {
-    try { & $sb } catch { Write-Log ("Error en {0}: {1}" -f $name, $_.Exception.Message) }
+    try { & $sb } catch { Write-Log ("Error in {0}: {1}" -f $name, $_.Exception.Message) }
 }
 
-# ---------- Cache (para mostrar los ultimos datos al arrancar) ----------
+# ---------- Cache (shows the last numbers right after startup) ----------
 function Save-Cache([string]$body) {
     try {
         $obj = @{ fetchedAt = (Get-Date).ToString('o'); body = $body }
         Set-Content -Path $CacheFile -Value ($obj | ConvertTo-Json -Compress) -Encoding UTF8
-    } catch { Write-Log "No se pudo guardar la cache: $($_.Exception.Message)" }
+    } catch { Write-Log "Could not save cache: $($_.Exception.Message)" }
 }
 
 function Read-Cache {
@@ -74,10 +74,10 @@ function Read-Cache {
         $c = Get-Content $CacheFile -Raw | ConvertFrom-Json
         $script:data = $c.body | ConvertFrom-Json
         $script:fetchedAt = [DateTime]::Parse($c.fetchedAt, $null, [Globalization.DateTimeStyles]::RoundtripKind).ToLocalTime()
-    } catch { Write-Log 'Cache ilegible; se ignora' }
+    } catch { Write-Log 'Unreadable cache; ignored' }
 }
 
-# ---------- Interpretacion de la respuesta ----------
+# ---------- Parsing the response ----------
 function ConvertTo-LocalDate($v) {
     if ($null -eq $v) { return $null }
     if ($v -is [DateTime]) { return $v.ToLocalTime() }
@@ -92,18 +92,18 @@ function Get-Limits {
         foreach ($l in @($j.limits)) {
             if ($null -eq $l.percent) { continue }
             $kind = [string]$l.kind
-            if ($kind -eq 'session') { $name = 'Sesión (5 horas)' }
-            elseif ($kind -eq 'weekly_all') { $name = 'Semanal · todos los modelos' }
-            elseif ($kind -like 'weekly_*') { $name = 'Semanal · ' + $Es.TextInfo.ToTitleCase($kind.Substring(7).Replace('_', ' ')) }
+            if ($kind -eq 'session') { $name = 'Session (5 hours)' }
+            elseif ($kind -eq 'weekly_all') { $name = 'Weekly · all models' }
+            elseif ($kind -like 'weekly_*') { $name = 'Weekly · ' + $En.TextInfo.ToTitleCase($kind.Substring(7).Replace('_', ' ')) }
             else { $name = $kind }
             [void]$out.Add(@{ Name = $name; Pct = [double]$l.percent; Reset = (ConvertTo-LocalDate $l.resets_at); Group = [string]$l.group })
         }
     }
     if ($out.Count -eq 0) {
-        # Campos antiguos de la API, por si desaparece "limits"
+        # Older API fields, in case "limits" goes away
         foreach ($p in @(
-            @('five_hour', 'Sesión (5 horas)', 'session'),
-            @('seven_day', 'Semanal · todos los modelos', 'weekly'))) {
+            @('five_hour', 'Session (5 hours)', 'session'),
+            @('seven_day', 'Weekly · all models', 'weekly'))) {
             $n = $j.($p[0])
             if ($n -and $null -ne $n.utilization) {
                 [void]$out.Add(@{ Name = $p[1]; Pct = [double]$n.utilization; Reset = (ConvertTo-LocalDate $n.resets_at); Group = $p[2] })
@@ -127,7 +127,7 @@ function Get-Breakdown {
     return $rows
 }
 
-# ---------- Red ----------
+# ---------- Network ----------
 function Get-Credential {
     if (-not (Test-Path $CredFile)) { return $null }
     try {
@@ -141,8 +141,8 @@ function Get-Credential {
         }
         return @{ Token = $o.accessToken; ExpiresUtc = $exp }
     } catch {
-        # Claude Code puede estar reescribiendo el archivo; se reintenta luego.
-        Write-Log ('No se pudo leer el archivo de credenciales ({0})' -f $_.Exception.GetType().Name)
+        # Claude Code may be rewriting the file; try again on the next poll.
+        Write-Log ('Could not read the credentials file ({0})' -f $_.Exception.GetType().Name)
         return $null
     }
 }
@@ -154,13 +154,13 @@ function Invoke-Fetch {
 
     $cred = Get-Credential
     if (-not $cred) {
-        $script:status = 'No encuentro las credenciales de Claude Code'
+        $script:status = 'Claude Code credentials not found'
         $script:nextFetch = $now.AddSeconds(60)
         return
     }
     if ($cred.ExpiresUtc -and [DateTime]::UtcNow -ge $cred.ExpiresUtc.AddSeconds(-60)) {
-        # Este programa no renueva tokens: eso lo hace Claude Code al abrirlo.
-        $script:status = 'Sesión caducada: abre Claude Code'
+        # This app never refreshes tokens; Claude Code does that when it runs.
+        $script:status = 'Session expired: open Claude Code'
         $script:nextFetch = $now.AddSeconds(60)
         return
     }
@@ -179,7 +179,7 @@ function Invoke-Fetch {
             $ms = New-Object System.IO.MemoryStream
             $buf = New-Object byte[] 8192
             while (($n = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
-                if ($ms.Length + $n -gt $MaxBodyBytes) { throw 'Respuesta demasiado grande' }
+                if ($ms.Length + $n -gt $MaxBodyBytes) { throw 'Response too large' }
                 $ms.Write($buf, 0, $n)
             }
             $body = [System.Text.Encoding]::UTF8.GetString($ms.ToArray())
@@ -199,22 +199,22 @@ function Invoke-Fetch {
             if ($h -and [int]::TryParse($h, [ref]$tmp) -and $tmp -gt 0) { $retry = [math]::Min($tmp, 3600) }
             $script:backoff429 = $now.AddSeconds($retry + 30)
             $script:nextFetch = $script:backoff429
-            $script:status = 'Demasiadas consultas; reintento en {0} min' -f [math]::Ceiling(($retry + 30) / 60)
+            $script:status = 'Too many requests; retrying in {0} min' -f [math]::Ceiling(($retry + 30) / 60)
         } elseif ($code -eq 401) {
-            $script:status = 'Token rechazado: abre Claude Code'
+            $script:status = 'Token rejected: open Claude Code'
         } else {
-            $script:status = 'Sin conexión con Anthropic'
+            $script:status = "Can't reach Anthropic"
             $script:nextFetch = $now.AddSeconds(90)
         }
-        Write-Log ('Fallo de red ({0}): {1}' -f $code, $_.Exception.Message)
+        Write-Log ('Network error ({0}): {1}' -f $code, $_.Exception.Message)
         if ($r) { $r.Dispose() }
     } catch {
-        $script:status = 'Error al leer el uso'
-        Write-Log ('Fallo al consultar: ' + $_.Exception.Message)
+        $script:status = "Couldn't read usage"
+        Write-Log ('Fetch failed: ' + $_.Exception.Message)
     }
 }
 
-# ---------- Colores ----------
+# ---------- Colors ----------
 function Get-PctColor([double]$pct) {
     if ($pct -ge 90) { return [System.Drawing.Color]::FromArgb(224, 72, 72) }
     if ($pct -ge 70) { return [System.Drawing.Color]::FromArgb(232, 156, 32) }
@@ -242,10 +242,10 @@ function New-RoundedPath([single]$x, [single]$y, [single]$w, [single]$h, [single
     return $p
 }
 
-# ---------- Icono de la bandeja ----------
-# Asterisco naranja de Claude en el centro y un anillo que se rellena en sentido
-# horario desde arriba segun el % de la sesion. $state: ok | stale | error | loading.
-# Se dibuja a 4x y se reduce para que quede nitido a 16-32 px.
+# ---------- Tray icon ----------
+# Orange Claude asterisk in the center and a ring that fills clockwise from the top
+# with session usage. $state: ok | stale | error | loading.
+# Drawn at 4x and scaled down so it stays sharp at 16-32 px.
 $ClaudeOrange = [System.Drawing.Color]::FromArgb(217, 119, 87)
 function New-IconBitmap([int]$sz, [double]$pct, [string]$state) {
     $k = 4; $big = $sz * $k
@@ -259,11 +259,11 @@ function New-IconBitmap([int]$sz, [double]$pct, [string]$state) {
     $c = [single]($big / 2)
     $rect = New-Object System.Drawing.RectangleF ($c - $r), ($c - $r), (2 * $r), (2 * $r)
 
-    # Pista del anillo (gris semitransparente: se ve en barra clara y oscura)
+    # Ring track: translucent gray so it shows on both light and dark taskbars
     $track = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(110, 140, 140, 140)), $ringW
     $g.DrawEllipse($track, $rect); $track.Dispose()
 
-    # Relleno horario desde las 12
+    # Clockwise fill from 12 o'clock
     if (($state -eq 'ok' -or $state -eq 'stale') -and $pct -gt 0) {
         $col = if ($state -eq 'stale') { [System.Drawing.Color]::FromArgb(150, 150, 150) } else { Get-PctColor $pct }
         $pen = New-Object System.Drawing.Pen $col, $ringW
@@ -277,7 +277,7 @@ function New-IconBitmap([int]$sz, [double]$pct, [string]$state) {
         $pen.Dispose()
     }
 
-    # Asterisco de Claude: rayos finos de longitud ligeramente irregular
+    # Claude asterisk: thin rays of slightly uneven length
     $starCol = if ($state -eq 'error') { [System.Drawing.Color]::FromArgb(150, 150, 150) } else { $ClaudeOrange }
     $starR = [single]($r - $ringW / 2 - $big * 0.085)
     $sp = New-Object System.Drawing.Pen $starCol, ([single]($big * 0.07))
@@ -323,14 +323,14 @@ function Update-Tray {
         $pct = [int][math]::Round($sess.Pct)
         $state = if (Get-IsStale) { 'stale' } else { 'ok' }
         $icon = New-TrayIcon $sess.Pct $state
-        $tip = 'Claude · sesión {0}%' -f $pct
-        if ($week) { $tip += ' · semana {0}%' -f [int][math]::Round($week.Pct) }
+        $tip = 'Claude · session {0}%' -f $pct
+        if ($week) { $tip += ' · week {0}%' -f [int][math]::Round($week.Pct) }
     } elseif ($script:status) {
         $icon = New-TrayIcon 0 'error'
         $tip = 'Claude'
     } else {
         $icon = New-TrayIcon 0 'loading'
-        $tip = 'Claude · cargando uso'
+        $tip = 'Claude · loading usage'
     }
     if ($script:status) { $tip += "`n" + $script:status }
     if ($tip.Length -gt 63) { $tip = $tip.Substring(0, 62) + '…' }
@@ -342,7 +342,7 @@ function Update-Tray {
     if ($old) { $old.Dispose() }
 }
 
-# ---------- Panel de detalles ----------
+# ---------- Details panel ----------
 function Get-Font([single]$pt, [string]$style = 'Regular') {
     $k = "$pt|$style"
     if (-not $script:fonts.ContainsKey($k)) {
@@ -352,29 +352,30 @@ function Get-Font([single]$pt, [string]$style = 'Regular') {
 }
 
 function Format-Ago {
-    if (-not $script:fetchedAt) { return 'Sin datos todavía' }
+    if (-not $script:fetchedAt) { return 'No data yet' }
     $m = [int][math]::Floor(((Get-Date) - $script:fetchedAt).TotalMinutes)
-    if ($m -lt 1) { return 'Actualizado ahora mismo' }
-    if ($m -lt 60) { return "Actualizado hace $m min" }
-    if ($m -lt 1440) { return 'Actualizado hace {0} h' -f [int][math]::Floor($m / 60) }
-    return 'Actualizado el ' + $script:fetchedAt.ToString('d MMM, HH:mm', $Es)
+    if ($m -lt 1) { return 'Updated just now' }
+    if ($m -lt 60) { return "Updated $m min ago" }
+    if ($m -lt 1440) { return 'Updated {0} h ago' -f [int][math]::Floor($m / 60) }
+    return 'Updated ' + $script:fetchedAt.ToString('MMM d, h:mm tt', $En)
 }
 
 function Format-Reset($dt) {
     if (-not $dt) { return '' }
     $now = Get-Date
     $d = $dt - $now
-    if ($d.TotalSeconds -le 0) { $rel = 'en breve' }
-    elseif ($d.Days -gt 0) { $rel = 'en {0} d {1} h' -f $d.Days, $d.Hours }
-    elseif ($d.Hours -gt 0) { $rel = 'en {0} h {1} min' -f $d.Hours, $d.Minutes }
-    else { $rel = 'en {0} min' -f [math]::Max(1, $d.Minutes) }
-    if ($dt.Date -eq $now.Date) { $abs = 'hoy ' + $dt.ToString('HH:mm') }
-    elseif ($dt.Date -eq $now.Date.AddDays(1)) { $abs = 'mañana ' + $dt.ToString('HH:mm') }
-    else { $abs = $dt.ToString('ddd d MMM, HH:mm', $Es) }
-    return "Se reinicia $rel · $abs"
+    if ($d.TotalSeconds -le 0) { $rel = 'soon' }
+    elseif ($d.Days -gt 0) { $rel = 'in {0} d {1} h' -f $d.Days, $d.Hours }
+    elseif ($d.Hours -gt 0) { $rel = 'in {0} h {1} min' -f $d.Hours, $d.Minutes }
+    else { $rel = 'in {0} min' -f [math]::Max(1, $d.Minutes) }
+    $time = $dt.ToString('h:mm tt', $En)
+    if ($dt.Date -eq $now.Date) { $abs = "today $time" }
+    elseif ($dt.Date -eq $now.Date.AddDays(1)) { $abs = "tomorrow $time" }
+    else { $abs = $dt.ToString('ddd, MMM d, h:mm tt', $En) }
+    return "Resets $rel · $abs"
 }
 
-# Dibuja (o solo mide, si $draw es $false) el contenido del panel. Devuelve la altura.
+# Draws (or only measures, when $draw is $false) the panel contents. Returns the height.
 function Invoke-PanelLayout($g, [bool]$draw, [single]$W) {
     $S = $script:S; $pal = $script:pal
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
@@ -389,7 +390,7 @@ function Invoke-PanelLayout($g, [bool]$draw, [single]$W) {
 
     $fTitle = Get-Font 12 'Bold'; $fName = Get-Font 10; $fPct = Get-Font 10 'Bold'; $fSmall = Get-Font 8.5
 
-    if ($draw) { $g.DrawString('Uso de Claude', $fTitle, $bFg, $x, $y) }
+    if ($draw) { $g.DrawString('Claude Usage', $fTitle, $bFg, $x, $y) }
     $y += $fTitle.GetHeight($g) + 4 * $S
 
     if ($script:status) {
@@ -401,7 +402,7 @@ function Invoke-PanelLayout($g, [bool]$draw, [single]$W) {
 
     $limits = Get-Limits
     if ($limits.Count -eq 0) {
-        if ($draw) { $g.DrawString('Todavía no hay datos de uso.', $fName, $bSub, $x, $y) }
+        if ($draw) { $g.DrawString('No usage data yet.', $fName, $bSub, $x, $y) }
         $y += $fName.GetHeight($g) + 14 * $S
     }
     foreach ($l in $limits) {
@@ -437,7 +438,7 @@ function Invoke-PanelLayout($g, [bool]$draw, [single]$W) {
 
     $bd = Get-Breakdown
     if ($bd.Count -gt 0) {
-        $txt = 'Esta semana: ' + ($bd -join ' · ')
+        $txt = 'This week: ' + ($bd -join ' · ')
         $sz = $g.MeasureString($txt, $fSmall, [int]$iw)
         if ($draw) { $g.DrawString($txt, $fSmall, $bSub, (New-Object System.Drawing.RectangleF $x, $y, $iw, ($sz.Height + 2))) }
         $y += $sz.Height + 12 * $S
@@ -450,7 +451,7 @@ function Invoke-PanelLayout($g, [bool]$draw, [single]$W) {
     $y += 10 * $S
 
     $ago = Format-Ago
-    $l1 = 'Actualizar'; $l2 = 'claude.ai'
+    $l1 = 'Refresh'; $l2 = 'claude.ai'
     $w1 = $g.MeasureString($l1, $fSmall).Width; $w2 = $g.MeasureString($l2, $fSmall).Width
     $fh = $fSmall.GetHeight($g)
     $x1 = $x + $iw - $w1 + 3 * $S
@@ -474,7 +475,7 @@ function Close-Panel {
         $p = $script:panel
         $script:panel = $null
         $script:panelClosed = Get-Date
-        try { $p.Close() } catch { }   # Close() libera un formulario no modal
+        try { $p.Close() } catch { }   # Close() also disposes a modeless form
     }
 }
 
@@ -499,7 +500,7 @@ function Show-Panel {
     $f.StartPosition = [System.Windows.Forms.FormStartPosition]::Manual
     $f.BackColor = $script:pal.Bg
     $f.KeyPreview = $true
-    $f.Text = 'Uso de Claude'
+    $f.Text = 'Claude Usage'
     $f.GetType().GetProperty('DoubleBuffered', [Reflection.BindingFlags]'NonPublic,Instance').SetValue($f, $true, $null)
 
     $g = $f.CreateGraphics()
@@ -509,7 +510,7 @@ function Show-Panel {
     $g.Dispose()
     $f.Size = New-Object System.Drawing.Size ([int]$W), $H
 
-    # Colocar junto al icono, respetando el area de trabajo (barra vertical incluida).
+    # Place next to the icon, inside the work area (vertical taskbars included).
     $cur = [System.Windows.Forms.Cursor]::Position
     $scr = [System.Windows.Forms.Screen]::FromPoint($cur)
     $wa = $scr.WorkingArea; $bd = $scr.Bounds
@@ -524,8 +525,8 @@ function Show-Panel {
     $py = [math]::Max($wa.Top + $gap, [math]::Min($py, $wa.Bottom - $f.Height - $gap))
     $f.Location = New-Object System.Drawing.Point ([int]$px), ([int]$py)
 
-    $f.Add_Paint({ param($s, $e) Invoke-Safe 'pintar panel' { [void](Invoke-PanelLayout $e.Graphics $true $s.ClientSize.Width) } })
-    $f.Add_Deactivate({ Invoke-Safe 'cerrar panel' { Close-Panel } })
+    $f.Add_Paint({ param($s, $e) Invoke-Safe 'panel paint' { [void](Invoke-PanelLayout $e.Graphics $true $s.ClientSize.Width) } })
+    $f.Add_Deactivate({ Invoke-Safe 'panel close' { Close-Panel } })
     $f.Add_KeyDown({ param($s, $e) if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { Close-Panel } })
     $f.Add_MouseMove({
         param($s, $e)
@@ -535,7 +536,7 @@ function Show-Panel {
     })
     $f.Add_MouseClick({
         param($s, $e)
-        Invoke-Safe 'clic en panel' {
+        Invoke-Safe 'panel click' {
             foreach ($h in $script:hit) {
                 if ($h.Rect.Contains([single]$e.X, [single]$e.Y)) {
                     if ($h.Action -eq 'refresh') { Invoke-Fetch; Update-Tray; Update-PanelInPlace $s }
@@ -547,7 +548,7 @@ function Show-Panel {
     })
     $f.Add_Shown({
         param($s, $e)
-        Invoke-Safe 'esquinas' {
+        Invoke-Safe 'rounded corners' {
             $v = 2  # DWMWCP_ROUND (Windows 11)
             [void][TrayNative]::DwmSetWindowAttribute($s.Handle, 33, [ref]$v, 4)
         }
@@ -561,13 +562,13 @@ function Show-Panel {
 
 function Switch-Panel {
     if ($script:panel) { Close-Panel; return }
-    # Al hacer clic en el icono con el panel abierto, el panel ya se cerro al perder el foco.
+    # Clicking the icon while the panel is open has already closed it via Deactivate.
     if (((Get-Date) - $script:panelClosed).TotalMilliseconds -lt 400) { return }
     if ((-not $script:fetchedAt) -or ((Get-Date) - $script:fetchedAt).TotalSeconds -gt 60) { Invoke-Fetch; Update-Tray }
     Show-Panel
 }
 
-# tests/Preview.ps1 carga solo las funciones
+# tests/Preview.ps1 loads only the functions
 if ($env:CLAUDE_TRAY_LIB) { return }
 
 $createdNew = $false
@@ -580,25 +581,25 @@ try {
 
     $script:tray = New-Object System.Windows.Forms.NotifyIcon
     $menu = New-Object System.Windows.Forms.ContextMenuStrip
-    $miShow = $menu.Items.Add('Ver uso')
-    $miRefresh = $menu.Items.Add('Actualizar ahora')
-    $miWeb = $menu.Items.Add('Abrir claude.ai/settings/usage')
+    $miShow = $menu.Items.Add('Show usage')
+    $miRefresh = $menu.Items.Add('Refresh now')
+    $miWeb = $menu.Items.Add('Open claude.ai/settings/usage')
     [void]$menu.Items.Add('-')
-    $miQuit = $menu.Items.Add('Salir')
+    $miQuit = $menu.Items.Add('Quit')
     $miShow.Font = New-Object System.Drawing.Font($miShow.Font, [System.Drawing.FontStyle]::Bold)
 
-    $miShow.Add_Click({ Invoke-Safe 'ver uso' { Show-Panel } })
-    $miRefresh.Add_Click({ Invoke-Safe 'actualizar' { Invoke-Fetch; Update-Tray } })
-    $miWeb.Add_Click({ Invoke-Safe 'web' { Start-Process 'https://claude.ai/settings/usage' } })
+    $miShow.Add_Click({ Invoke-Safe 'show usage' { Show-Panel } })
+    $miRefresh.Add_Click({ Invoke-Safe 'refresh' { Invoke-Fetch; Update-Tray } })
+    $miWeb.Add_Click({ Invoke-Safe 'open web' { Start-Process 'https://claude.ai/settings/usage' } })
     $miQuit.Add_Click({
-        Write-Log 'Cerrado por el usuario.'
+        Write-Log 'Quit by user.'
         $script:tray.Visible = $false
         [System.Windows.Forms.Application]::Exit()
     })
     $script:tray.ContextMenuStrip = $menu
     $script:tray.Add_MouseClick({
         param($s, $e)
-        if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Invoke-Safe 'clic en icono' { Switch-Panel } }
+        if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Invoke-Safe 'icon click' { Switch-Panel } }
     })
 
     Update-Tray
@@ -607,7 +608,7 @@ try {
     $script:timer = New-Object System.Windows.Forms.Timer
     $script:timer.Interval = 2000
     $script:timer.Add_Tick({
-        Invoke-Safe 'temporizador' {
+        Invoke-Safe 'timer' {
             $script:timer.Interval = 30000
             if ((Get-Date) -ge $script:nextFetch) { Invoke-Fetch }
             Update-Tray
@@ -615,10 +616,10 @@ try {
     })
     $script:timer.Start()
 
-    Write-Log 'Iniciado.'
+    Write-Log 'Started.'
     [System.Windows.Forms.Application]::Run((New-Object System.Windows.Forms.ApplicationContext))
 } catch {
-    Write-Log ('Fallo grave: ' + $_.Exception.ToString())
+    Write-Log ('Fatal error: ' + $_.Exception.ToString())
     $exitCode = 1
 } finally {
     try { if ($script:timer) { $script:timer.Stop() } } catch { }

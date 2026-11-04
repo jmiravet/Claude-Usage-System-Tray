@@ -1,4 +1,4 @@
-' Abre el vigilante de Claude Usage sin ninguna ventana visible.
+' Starts the Claude Usage System Tray watchdog with no visible window.
 Dim sh, dir
 Set sh = CreateObject("WScript.Shell")
 dir = CreateObject("Scripting.FileSystemObject").GetParentFolderName(WScript.ScriptFullName)

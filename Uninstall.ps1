@@ -1,4 +1,4 @@
-﻿# Desinstala Claude Usage: quita el inicio automatico, cierra la app y borra su carpeta.
+﻿# Uninstalls Claude Usage System Tray: removes the Startup shortcut, stops the app and deletes its folder.
 $dir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $lnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'Claude Usage.lnk'
 if (Test-Path $lnk) { Remove-Item $lnk -Force }
@@ -8,4 +8,4 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
 Start-Sleep -Milliseconds 500
 Set-Location $env:TEMP
 Remove-Item $dir -Recurse -Force
-Write-Host 'Claude Usage desinstalado.'
+Write-Host 'Claude Usage System Tray uninstalled.'
