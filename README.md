@@ -4,7 +4,11 @@
 
 The icon is the Claude asterisk inside a ring that fills clockwise with your 5-hour session usage: green under 70%, amber under 90%, red at 90% and above, and gray when the data is more than 20 minutes old.
 
+![Tray icon at different usage levels, on dark and light taskbars and zoomed in](docs/screenshots/icons.png)
+
 Click it to open a panel next to the icon with your session and weekly limits, when each one resets, and this week's usage by product. It follows the Windows light/dark theme and positions itself correctly with vertical taskbars.
+
+![Details panel showing session and weekly usage with reset times](docs/screenshots/panel.png)
 
 Based on [apexlocal-jz/claude-usage-tray](https://github.com/apexlocal-jz/claude-usage-tray) by Joe Zeng. This version redesigns the icon and the details panel and adds a watchdog that restarts the app if it crashes.
 
